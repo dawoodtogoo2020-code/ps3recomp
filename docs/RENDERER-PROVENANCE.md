@@ -48,7 +48,9 @@ present in this checkout and are neither recreated nor superseded here.
 
 No specification text or example program is vendored in the implementation.
 These references describe operations; the new implementation is contributed
-under this repository's MIT licence.
+under this repository's MIT licence. The [Khronos specification notice](https://registry.khronos.org/speccopyright.html)
+permits using specifications to implement their functionality; it is not an
+MIT licence to redistribute the specifications themselves.
 
 | Reference | Used for | Licence / limitation |
 | --- | --- | --- |
@@ -86,4 +88,72 @@ small; retargeting it directly to upstream master would drag in the entire
 original contribution. After the relevant renderer foundation lands upstream,
 cherry-pick the replacement commits and resolve the integration there.
 
-Validation results and runnable commands are recorded below after execution.
+## Validation, 27 October 2026 (Qatar)
+
+Environment: Linux x86-64, GCC 13.3, glslang 15.1.0, SPIRV-Tools 2025.1,
+Mesa lavapipe 25.2.8 / LLVM 20.1.2, Khronos validation layer 1.3.275.
+Test inputs are synthetic, with no game, firmware or captured shader bytes.
+
+| Check | Result |
+| --- | --- |
+| `python3 tests/check_renderer_shaders.py` | PASS: 16 extent/overflow/interface checks; all four production shaders compile to Vulkan 1.0 SPIR-V and pass `spirv-val` |
+| Extent test with GCC AddressSanitizer + UndefinedBehaviorSanitizer | PASS with `ASAN_OPTIONS=detect_leaks=0`; LeakSanitizer itself cannot inspect processes in this runner |
+| `test_vulkan_msaa_gpu --samples=4` | 1,051 numerical/interface checks PASS; 1x/4x colour/depth, RGBA16F, patch pitches, cache invalidation, independent sample-index oracle, failed-begin recovery |
+| `test_vulkan_shadow_gpu` | 5,144 checks across 96 cases PASS; all compare functions, projected/texel coordinates, wrap/filter selection, asymmetric PCF weights and NaN reference cases |
+| Same two fixtures with `PS3RECOMP_VK_BATCH=0` | Same check counts PASS |
+| Vulkan validation, default batching | FAIL: five device-teardown lifetime errors per fixture, all `VUID-vkDestroyDevice-device-05137`; no transfer/shader validation errors in the 1x/4x runs |
+| Baseline shadow fixture at `2380f1f` with the same build guard | 4,850 checks / 90 cases PASS, **the same five teardown errors**; establishes that this teardown defect predates this topic |
+| Vulkan validation, batching disabled | FAIL: three device-teardown lifetime errors per fixture |
+| Original full MSAA fixture | Not a valid pass: lavapipe advertises only 1x/4x, yet the existing backend attempts 2x creation; validation rejects that usage and the fixture's edge assertion fails |
+| Existing depth-as-ARGB fixture | Numerical run returns zero, but includes unsupported 2x image creation; **not counted as a clean validation pass** |
+| `git diff --check` | PASS |
+
+The unmodified base does not compile with CACAO disabled: `sink_end` accesses
+`eng_pipeline.position_known` and `position_rows` outside their CACAO guard.
+This fails before testing either renderer implementation. To obtain the
+results above, **both baseline and replacement builds used the same temporary
+validation-only guard** around the position-row arm, leaving the pipeline-key
+fallback available. The source was restored afterwards, and that guard is
+not part of this topic (a compile-fix patch was already prepared separately).
+These results therefore do not claim that a fresh checkout builds without
+the separately prepared build fix. No CMake, dependency, or FPSCR file is
+changed here. Existing unrelated compiler warnings remain.
+
+After applying that separately prepared compile fix, the ordinary commands are:
+
+```sh
+python3 tests/check_renderer_shaders.py
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DPS3RECOMP_RSX_VULKAN=ON -DPS3RECOMP_BUILD_TESTS=ON
+cmake --build build --target test_vulkan_msaa_gpu test_vulkan_shadow_gpu
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation ./build/test_vulkan_msaa_gpu --samples=4
+VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation ./build/test_vulkan_shadow_gpu
+```
+
+The `--samples=4` option is an explicit restriction, not an automatic success
+on unsupported hardware. Omit it on a device supporting native 2x and 4x.
+Inspect validation output as well as exit status: these existing fixtures
+count pixel checks, and the layer's teardown errors do not change their exit
+codes. Run again with `PS3RECOMP_VK_BATCH=0` to exercise synchronous submission.
+
+## Remaining acceptance evidence
+
+1. Run native 2x/4x tests on the Windows/NVIDIA port device and a second Vulkan
+   driver; compare Folklore boot, gameplay, shadow maps, movies and upscalers.
+   No Windows, Android, Steam Deck or game execution occurred in this run.
+2. Resolve the existing CACAO build guard and device-teardown leaks in their
+   own changes, then require zero validation errors for the complete fixtures.
+3. Record an independent RSX experiment for the comparison-enable rule:
+   synthetic 2x2 depth values, reference below/equal/above each value, every
+   compare code 0..7, each depth format, alpha-kill on/off, and TEX/TXP.
+   Read all four output channels. Record raw register values, expected
+   alternatives and actual output; do not use RPCS3 implementation code as
+   the expected-value generator.
+4. Record each supported RSX AA mode with one sample-mask bit enabled at a
+   time and read the resulting storage bytes. Include 2x and both 4x modes,
+   odd extents, colour and depth. Distinguish sample *index order* from sample
+   *positions*. Host pack/extract round trips cannot establish either one.
+5. Have the maintainer review provenance and the remaining adapter assumptions
+   before describing the renderer as cleared for MIT distribution. Keep the
+   original notices/history discoverable; this topic does not relicense old
+   revisions or the untouched FPSCR files.
