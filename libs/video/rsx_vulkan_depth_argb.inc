@@ -8,7 +8,7 @@
  * forbids contraction into a fused multiply-add) and writes it through an
  * R32_UINT view of an R8G8B8A8 image, so the texture is bit-identical while
  * nothing waits for the GPU. Single-sample depth stays on the CPU path.
- * Included after rsx_vulkan_msaa.inc; shares the synchronous backend queue. */
+ * Included after rsx_vulkan_samples.inc; shares the synchronous backend queue. */
 #include "rsx_depth_guest.h"
 
 #define VK_DARGB_MAX_VARIANTS 16
@@ -62,7 +62,7 @@ static VkPipeline vk_eng_depth_argb_pipeline(u32 key, u32 hw, u32 hh, u32 gw, u3
         VkPipelineLayoutCreateInfo lci = { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                            .setLayoutCount = 1, .pSetLayouts = &s_dargb.set_layout };
         if (pvkCreatePipelineLayout(s_vk.device, &lci, NULL, &s_dargb.layout) != VK_SUCCESS) return VK_NULL_HANDLE;
-        if (vk_eng_translate(vk_msaa_expand_vs, RSX_SHADER_STAGE_VERTEX, &s_dargb.vs)) return VK_NULL_HANDLE;
+        if (vk_eng_translate(rsx_sample_vertex_hlsl, RSX_SHADER_STAGE_VERTEX, &s_dargb.vs)) return VK_NULL_HANDLE;
         VkAttachmentDescription attachment = { .format = VK_FORMAT_R32_UINT, .samples = VK_SAMPLE_COUNT_1_BIT,
             .loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
             .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,

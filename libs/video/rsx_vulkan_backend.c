@@ -2487,7 +2487,7 @@ typedef struct vk_eng_obj {
     u32      surface, remap, rsx_fmt;/* VIEW: what it is a view of          */
     u8       cube;                   /* TEXTURE: six layers, a CUBE view    */
     u8       upload_failed;          /* TEXTURE: a mip upload could not stage */
-    /* Multisample target: what its expansion pass reuses (rsx_vulkan_msaa.inc). */
+    /* Multisample target: reusable extraction objects (rsx_vulkan_samples.inc). */
     VkImageView     exp_view;
     VkFramebuffer   exp_fb;
     VkDescriptorSet exp_set;
@@ -3778,8 +3778,7 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx, u32 samples)
     return P->variant[si][topo_idx];
 }
 
-#include "rsx_vulkan_msaa.inc"
-#include "rsx_vulkan_msaa_upload.inc"
+#include "rsx_vulkan_samples.inc"
 #include "rsx_vulkan_depth_argb.inc"
 #ifdef PS3RECOMP_RSX_CACAO
 #include "rsx_vulkan_ao_pass.inc"
