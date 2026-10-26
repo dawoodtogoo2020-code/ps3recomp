@@ -13,8 +13,11 @@ static VKAPI_ATTR VkResult VKAPI_CALL reject_begin(VkCommandBuffer command,
     (void)command;(void)info;return VK_ERROR_OUT_OF_HOST_MEMORY;
 }
 
-int main(void)
+int main(int argc, char** argv)
 {
+    const int four_only = argc == 2 && !strcmp(argv[1], "--samples=4");
+    if (argc > 1 && !four_only) return 2;
+    if (four_only) puts("2x MSAA explicitly excluded; this run verifies 1x/4x only");
     SDL_SetMainReady();
     CHECK(rsx_vulkan_backend_init(8,4,"MSAA sample regression")==0);
     static const char vs[]="float4 main(float4 p:ATTR0):SV_Position{return p;}";
@@ -30,6 +33,7 @@ int main(void)
     const u32 counts[]={2,4,2,1};
     for(unsigned round=0;round<4;++round) {
         u32 count=counts[round];
+        if (four_only && count == 2) continue;
         u32 color=count>1?vk_eng_color_multisample(NULL,RSX_BE_FMT_R8G8B8A8,8,4,count):vk_eng_color_target_create(NULL,RSX_BE_FMT_R8G8B8A8,8,4,NULL,0);
         u32 depth=count>1?vk_eng_depth_multisample(NULL,8,4,count):vk_eng_depth_target_create(NULL,8,4);
         CHECK(color&&depth);
@@ -118,6 +122,7 @@ int main(void)
     /* Half-float targets use the same inverse pass with a different format.
      * Values are exact finite binary16 numbers, so a byte roundtrip is valid. */
     for(unsigned count=2;count<=4;count+=2) {
+        if (four_only && count == 2) continue;
         u32 color=vk_eng_color_multisample(NULL,RSX_BE_FMT_R16G16B16A16F,3,2,count);
         CHECK(color!=0);
         u32 expanded=vk_eng_expand_samples(color);
@@ -136,6 +141,45 @@ int main(void)
         CHECK(vk_eng_pack_samples(0,expanded)==0);
         CHECK(vk_eng_pack_samples(color,color)==0);
         vk_eng_release(NULL,color);
+    }
+    /* An independent extraction oracle: draw known colours into Vulkan
+     * sample indices using static masks, without calling the insertion pass.
+     * A matching permutation bug in pack+expand cannot satisfy this check. */
+    {
+        u32 target=vk_eng_color_multisample(NULL,RSX_BE_FMT_R8G8B8A8,3,2,4);
+        CHECK(target!=0);
+        const float triangle[3][4]={{-1,-1,0,1},{3,-1,0,1},{-1,3,0,1}};
+        const uint8_t rgba[4][4]={{255,0,0,255},{0,255,0,255},{0,0,255,255},{255,255,255,255}};
+        for (u32 slot=0;slot<4;++slot) {
+            rsx_be_render_state masked={0};masked.color_mask=0x01010101u;
+            masked.antialias_control=(1u<<(16+slot))|1u;
+            char fragment[128];
+            snprintf(fragment,sizeof fragment,"float4 main():SV_Target0{return float4(%u,%u,%u,1);}",
+                     rgba[slot][0]/255,rgba[slot][1]/255,rgba[slot][2]/255);
+            u32 p=vk_eng_pipeline_create(NULL,vs,fragment,&masked,&layout,16,RSX_BE_FMT_R8G8B8A8,1);
+            CHECK(p!=0);
+            vk_eng_bind_targets(NULL,&target,1,0);vk_eng_bind_pipeline(NULL,p);
+            vk_eng_set_viewport(NULL,0,0,3,2,0,1);vk_eng_set_scissor(NULL,0,0,3,2);
+            vk_eng_draw(NULL,RSX_TOPOLOGY_TRIANGLES,triangle,3,16,NULL,0);
+            vk_eng_pipeline_release(NULL,p);
+        }
+        uint8_t actual[6*4*4];
+        CHECK(vk_eng_readback_rows(target,0,0,6,4,actual,24)==0);
+        for (u32 y=0;y<4;++y) for(u32 x=0;x<6;++x)
+            CHECK(memcmp(actual+(y*6+x)*4,rgba[(y%2)*2+x%2],4)==0);
+
+        /* A failed expansion must be retryable, including failure before a
+         * newly allocated image has made its initial layout transition. */
+        vk_eng_release(NULL,target);
+        target=vk_eng_color_multisample(NULL,RSX_BE_FMT_R8G8B8A8,3,2,4);
+        CHECK(target!=0);
+        PFN_vkBeginCommandBuffer begin=pvkBeginCommandBuffer;
+        pvkBeginCommandBuffer=reject_begin;
+        CHECK(vk_eng_expand_samples(target)==0);
+        CHECK(s_eobj[target].expanded==0 && !s_eobj[target].expansion_valid);
+        pvkBeginCommandBuffer=begin;
+        CHECK(vk_eng_expand_samples(target)!=0);
+        vk_eng_release(NULL,target);
     }
     vk_eng_pipeline_release(NULL,pipeline);rsx_vulkan_backend_shutdown();
     printf("MSAA GPU: %u checks passed\n",checks);return 0;

@@ -164,6 +164,17 @@ static unsigned build_cases(shadow_case* out)
     add_case(out,&n,"minified picks min linear","float4(pos.x*0.5,0.375,0.5,1.0)",1,0,0,1,0,TEX_CHECKER4,S_LINEAR_REPEAT,.5f,0);
     add_case(out,&n,"magnified picks mag linear","float4(pos.x*0.015625+0.25,0.375,0.5,1.0)",1,0,0,0,1,TEX_CHECKER4,S_LINEAR_REPEAT,.5f,-.0625f);
     add_case(out,&n,"magnified picks mag nearest","float4(pos.x*0.015625+0.25,0.375,0.5,1.0)",1,0,0,1,0,TEX_CHECKER4,S_LINEAR_REPEAT,0,0);
+    /* Independently calculated PCF tent weights on checkerboard row 1:
+     * at x=0.75 texels, 25% of the weight reaches the failing neighbour;
+     * at x=1.25, 75% does. Comparing an averaged depth cannot pass both. */
+    add_case(out,&n,"PCF asymmetric weight 3/4","float4(0.75,1.5,0.5,1)",1,0,1,1,1,TEX_CHECKER4,S_NEAREST_CLAMP,.75f,0);
+    add_case(out,&n,"PCF asymmetric weight 1/4","float4(1.25,1.5,0.5,1)",1,0,1,1,1,TEX_CHECKER4,S_NEAREST_CLAMP,.25f,0);
+    /* A float snapshot is not a fixed-point depth image. Preserve the
+     * helper's unclamped reference convention, including non-finite input. */
+    add_case(out,&n,"float reference below zero","float4(.5,.5,-1,1)",1,0,0,0,0,TEX_CONST,S_NEAREST_CLAMP,1,0);
+    add_case(out,&n,"float reference above one","float4(.5,.5,2,1)",4,0,0,0,0,TEX_CONST,S_NEAREST_CLAMP,1,0);
+    add_case(out,&n,"NaN reference NOTEQUAL","float4(.5,.5,asfloat(0x7fc00000u),1)",5,0,0,0,0,TEX_CONST,S_NEAREST_CLAMP,1,0);
+    add_case(out,&n,"NaN reference LESS","float4(.5,.5,asfloat(0x7fc00000u),1)",1,0,0,0,0,TEX_CONST,S_NEAREST_CLAMP,0,0);
     return n;
 }
 
